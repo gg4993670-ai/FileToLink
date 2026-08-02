@@ -2,6 +2,7 @@ from asyncio import get_event_loop
 from urllib.parse import unquote
 import os
 import gc
+import aiofiles
 
 from pyrogram.errors import MessageIdInvalid
 from quart import Quart, abort, request, Response, redirect
@@ -35,7 +36,7 @@ async def download(archive_id: int, name: str):
 
     file_size = worker.size
 
-    # Initial chunk buffer guarantee
+    # Pehle part ka download ensure karo
     if not worker.parts[0]:
         await worker.first_dl()
 
@@ -52,11 +53,11 @@ async def download(archive_id: int, name: str):
     end = min(end, file_size - 1)
     content_length = (end - start) + 1
 
-    async def file_stream():
+    async def async_file_stream():
         current_byte = start
         try:
-            with open(worker.path, "rb") as f:
-                f.seek(start)
+            async with aiofiles.open(worker.path, "rb") as f:
+                await f.seek(start)
                 while current_byte <= end:
                     part_number = worker.part_number(current_byte + 1)
                     if not worker.parts[part_number]:
@@ -64,9 +65,9 @@ async def download(archive_id: int, name: str):
 
                     loop.create_task(worker.pre_dl(part_number))
 
-                    # 4KB Chunk size to prevent Render 512MB RAM Exceeded Error
-                    chunk_size = min(4096, (end - current_byte) + 1)
-                    chunk = f.read(chunk_size)
+                    # Non-blocking async chunk read (64KB chunks for optimal speed & low RAM)
+                    chunk_size = min(65536, (end - current_byte) + 1)
+                    chunk = await f.read(chunk_size)
                     if not chunk:
                         break
                     current_byte += len(chunk)
@@ -76,7 +77,7 @@ async def download(archive_id: int, name: str):
             pass
 
     headers = {
-        "Content-Type": worker.mime_type or "application/octet-stream",
+        "Content-Type": worker.mime_type or "video/mp4",
         "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
@@ -84,4 +85,4 @@ async def download(archive_id: int, name: str):
     }
 
     status_code = 206 if range_header else 200
-    return Response(file_stream(), status=status_code, headers=headers)
+    return Response(async_file_stream(), status=status_code, headers=headers)
