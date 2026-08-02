@@ -36,20 +36,20 @@ async def main(_, msg: Message):
         if not worker.parts[0]:
             # If first part of the file is not downloaded yet, send Generating link message
             gen_msg = await bot.send_message(msg.chat.id, Strings.generating_link,
-                                             reply_to_message_id=msg.message_id)
+                                             reply_to_message_id=msg.id)
         else:
             gen_msg = None
     else:
         # Else if the file not exist on the server, Send the message to Archive Channel and Create empty file
         gen_msg = await bot.send_message(msg.chat.id, Strings.generating_link,
-                                         reply_to_message_id=msg.message_id)
+                                         reply_to_message_id=msg.id)
 
         archived_msg = await archive_msg(msg)
         worker = Worker(archived_msg)
         AllWorkers.add(worker)
 
-        if archived_msg.message_id in NotFound:
-            NotFound.remove(archived_msg.message_id)
+        if archived_msg.id in NotFound:
+            NotFound.remove(archived_msg.id)
 
         await worker.create_file()  # Create empty file
 
@@ -69,7 +69,7 @@ async def main(_, msg: Message):
     if gen_msg is not None:
         await gen_msg.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
     else:
-        await bot.send_message(msg.chat.id, text, reply_to_message_id=msg.message_id,
+        await bot.send_message(msg.chat.id, text, reply_to_message_id=msg.id,
                                reply_markup=reply_markup, disable_web_page_preview=True)
 
 
@@ -103,7 +103,6 @@ async def keep_awake(sleep_time=20 * 60):
     async with ClientSession() as session:
         async with session.get(Config.Link_Root + "keep_awake"):
             pass
-        
 
 
 async def startup():
