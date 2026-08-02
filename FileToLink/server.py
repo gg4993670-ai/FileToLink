@@ -3,52 +3,19 @@ from urllib.parse import unquote
 import os
 
 from pyrogram.errors import MessageIdInvalid
-from quart import Quart, abort, request, send_file, redirect
-from quart.wrappers.response import FileBody as Fb
+from quart import Quart, abort, request, Response, redirect
 
 from FileToLink import Config
 from FileToLink.worker import Worker, create_worker, AllWorkers, NotFound
 
 
 loop = get_event_loop()
-
 app = Quart("FileToLink-Bot")
-
-
-class FileBody(Fb):
-    def __init__(self, file_path, *, buffer_size=None):
-        super(FileBody, self).__init__(file_path, buffer_size=buffer_size)
-        file_id = str(self.file_path.resolve()).split('/')[-2]
-        self.worker: Worker = AllWorkers.get(file_id=file_id)
-        self.current_part: int = 0
-        self.last_read_byte: int = 0
-
-    async def __anext__(self) -> bytes:
-        current = await self.file.tell()
-        if current >= self.end:
-            raise StopAsyncIteration()
-        read_size = min(self.buffer_size, self.end - current)
-        
-        # Part ko download hone do read karne se pehle
-        part_number = self.worker.part_number(current + 1)
-        if not self.worker.parts[part_number]:
-            await self.worker.dl(part_number)
-            
-        loop.create_task(self.worker.pre_dl(part_number))
-
-        chunk = await self.file.read(read_size)
-        if chunk:
-            return chunk
-        else:
-            raise StopAsyncIteration()
-
-
-app.response_class.file_body_class = FileBody
 
 
 @app.route('/')
 async def root():
-    return redirect(f"https://t.me/shadow_bots")
+    return redirect("https://t.me/shadow_bots")
 
 
 @app.route('/dl/<int:archive_id>/<name>')
@@ -56,7 +23,7 @@ async def download(archive_id: int, name: str):
     worker: Worker = AllWorkers.get(archive_id=archive_id)
     if worker is None:
         try:
-            worker: Worker = await create_worker(archive_id)
+            worker = await create_worker(archive_id)
         except (ValueError, MessageIdInvalid):
             NotFound.append(archive_id)
             return abort(404)
@@ -65,16 +32,51 @@ async def download(archive_id: int, name: str):
     if name != worker.name or not os.path.isfile(worker.path):
         return abort(404)
 
-    # First part readiness check
+    file_size = worker.size
+
+    # Ensure first part is downloaded from Telegram
     if not worker.parts[0]:
         await worker.first_dl()
 
-    response = await send_file(worker.path, mimetype=worker.mime_type,
-                               as_attachment=not bool(request.args.get('st')),
-                               attachment_filename=worker.name)
-    
-    # EXACT FIX HERE: 'Config.Part_size' ki jagah 'accept_ranges="bytes"' pass kiya hai
-    if request.range is not None and len(request.range.ranges) > 0:
-        await response.make_conditional(request, accept_ranges="bytes")
+    # Range Header Handling
+    range_header = request.headers.get("Range")
+    start = 0
+    end = file_size - 1
 
-    return response
+    if range_header:
+        ranges = range_header.replace("bytes=", "").split("-")
+        start = int(ranges[0]) if ranges[0] else 0
+        if len(ranges) > 1 and ranges[1]:
+            end = int(ranges[1])
+
+    end = min(end, file_size - 1)
+    content_length = (end - start) + 1
+
+    async def file_stream():
+        current_byte = start
+        with open(worker.path, "rb") as f:
+            f.seek(start)
+            while current_byte <= end:
+                part_number = worker.part_number(current_byte + 1)
+                if not worker.parts[part_number]:
+                    await worker.dl(part_number)
+
+                loop.create_task(worker.pre_dl(part_number))
+
+                chunk_size = min(8192, (end - current_byte) + 1)
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                current_byte += len(chunk)
+                yield chunk
+
+    headers = {
+        "Content-Type": worker.mime_type or "application/octet-stream",
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(content_length),
+        "Content-Disposition": f'{"inline" if request.args.get("st") else "attachment"}; filename="{worker.name}"',
+    }
+
+    status_code = 206 if range_header else 200
+    return Response(file_stream(), status=status_code, headers=headers)
