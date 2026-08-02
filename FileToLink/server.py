@@ -79,8 +79,8 @@ async def download(archive_id: int, name: str):
 
     response = await send_file(worker.path, mimetype=worker.mime_type,
                                as_attachment=not bool(request.args.get('st')),
-                               attachment_filename=worker.name)
+                               download_name=worker.name)
     if request.range is not None and len(request.range.ranges) > 0:
-        await response.make_conditional(request.range, Config.Part_size)
+        await response.make_conditional(request, Config.Part_size)
 
     return response
