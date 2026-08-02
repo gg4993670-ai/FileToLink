@@ -2,35 +2,35 @@ import os
 
 
 class Config:
-    API_ID = int(os.environ.get("API_ID"))
-    API_HASH = os.environ.get("API_HASH")
-    Token = os.environ.get("BOT_TOKEN")
-    Session = os.environ.get("Session_String")
-    if Session is None or Session == "":
+    API_ID = int(os.environ.get("API_ID", 0))
+    API_HASH = os.environ.get("API_HASH", "")
+    Token = os.environ.get("BOT_TOKEN", "")
+    Session = os.environ.get("Session_String", "")
+    if not Session:
         Session = ":memory:"
-    App_Name = os.environ.get("APP_NAME")
-    Port = int(os.environ.get("PORT"))
-    Archive_Channel_ID = int(os.environ.get("ARCHIVE_CHANNEL_ID"))
-    Start_Message = os.environ.get("Start_Message")
-    Bot_Channel = os.environ.get("Bot_Channel_UserName")
+    App_Name = os.environ.get("APP_NAME", "FileToLink")
+    Port = int(os.environ.get("PORT", 8080))
+    Archive_Channel_ID = int(os.environ.get("ARCHIVE_CHANNEL_ID", 0))
+    Start_Message = os.environ.get("Start_Message", "Hello! Send me any file to get direct download and stream links.")
+    Bot_Channel = os.environ.get("Bot_Channel_UserName", "")
     if Bot_Channel and Bot_Channel.startswith("@"):
         Bot_Channel = Bot_Channel[1:]
     elif Bot_Channel == "":
         Bot_Channel = None
 
-    # Render URL direct Fallback Set:
+    # Dynamic Render domain fallback
     URL = os.environ.get("URL", "https://cinetouch-stream-python.onrender.com")
     Link_Root = f"{URL.rstrip('/')}/"
 
     Download_Folder = "Files"
     Dev_Channel = "shadow_bots"
-    Bot_UserName = None  # The bot will set it after starting
-    Part_size = 1024 * 1024  # (1MB) For Pyrogram
-    Buffer_Size = 512 * 1024  # For Quart
-    Pre_Dl = 1  # How many parts to download from telegram before client request them
-    Separate_Time = 4  # (seconds)  wait time between messages if user send more than one
-    Sleep_Threshold = 60  # (Seconds) sleep threshold for flood wait exceptions
-    Max_Fast_Processes = 1  # How many links user can update them to fast links at the same time
+    Bot_UserName = None  # Will be set dynamically on startup
+    Part_size = 1024 * 1024  # 1MB Pyrogram Part Size
+    Buffer_Size = 512 * 1024  # 512KB Buffer
+    Pre_Dl = 1
+    Separate_Time = 4
+    Sleep_Threshold = 60
+    Max_Fast_Processes = 1
 
 
 class Strings:
