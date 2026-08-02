@@ -20,7 +20,7 @@ from FileToLink.utils import participant
 Last_Time = {}
 
 
-@bot.on_message(filters.media & filters.private & filters.incoming)
+@bot.on_message((filters.media | filters.document) & filters.private & filters.incoming)
 async def main(_, msg: Message):
     await wait(msg.chat.id)
 
