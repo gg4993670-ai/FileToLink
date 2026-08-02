@@ -28,10 +28,10 @@ async def archive_msg(msg: Message):
 
     try:
         reply_markup = InlineKeyboardMarkup(buttons)
-        archived_msg: Message = await bot.copy_message(Config.Archive_Channel_ID, msg.chat.id, msg.message_id,
+        archived_msg: Message = await bot.copy_message(Config.Archive_Channel_ID, msg.chat.id, msg.id,
                                                        reply_markup=reply_markup)
     except ButtonDataInvalid:
-        archived_msg: Message = await bot.copy_message(Config.Archive_Channel_ID, msg.chat.id, msg.message_id)
+        archived_msg: Message = await bot.copy_message(Config.Archive_Channel_ID, msg.chat.id, msg.id)
     return archived_msg
 
 
