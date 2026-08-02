@@ -35,6 +35,7 @@ async def download(archive_id: int, name: str):
 
     file_size = worker.size
 
+    # Initial chunk buffer guarantee
     if not worker.parts[0]:
         await worker.first_dl()
 
@@ -57,20 +58,20 @@ async def download(archive_id: int, name: str):
             with open(worker.path, "rb") as f:
                 f.seek(start)
                 while current_byte <= end:
-                    part_number = worker.worker.part_number(current_byte + 1) if hasattr(worker, 'worker') else worker.part_number(current_byte + 1)
+                    part_number = worker.part_number(current_byte + 1)
                     if not worker.parts[part_number]:
                         await worker.dl(part_number)
 
                     loop.create_task(worker.pre_dl(part_number))
 
-                    # RAM bachane ke liye chota chunk size (2KB) use kiya hai
-                    chunk_size = min(2048, (end - current_byte) + 1)
+                    # 4KB Chunk size to prevent Render 512MB RAM Exceeded Error
+                    chunk_size = min(4096, (end - current_byte) + 1)
                     chunk = f.read(chunk_size)
                     if not chunk:
                         break
                     current_byte += len(chunk)
                     yield chunk
-                    gc.collect() # Force memory cleanup
+                    gc.collect()
         except (BrokenPipeError, ConnectionResetError):
             pass
 
