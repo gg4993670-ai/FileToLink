@@ -20,7 +20,7 @@ class Worker:
         if msg.empty:
             raise ValueError
         self.msg = msg
-        self.archive_id = msg.message_id
+        self.archive_id = msg.id
         self.media = (msg.video or msg.document or msg.photo or msg.audio or
                       msg.voice or msg.video_note or msg.sticker or msg.animation)
         self.size = self.media.file_size
@@ -173,7 +173,7 @@ class Workers:
         """Add the worker to <self.by_file_id> and <self.by_archive_id>"""
         if worker.id not in self.by_file_id:
             self.by_file_id[worker.id] = worker
-        if worker.msg.message_id not in self.by_archive_id:
+        if worker.msg.id not in self.by_archive_id:
             self.by_archive_id[worker.archive_id] = worker
 
     def remove(self, archive_id: int):
@@ -232,7 +232,7 @@ async def update_to_fast_link(_, cb: CallbackQuery):
     await cb.answer(Strings.wait)
     await cb.message.edit_reply_markup(InlineKeyboardMarkup(buttons))
     progress = await msg.reply_text(
-        Strings.wait_update, reply_to_message_id=msg.message_id,
+        Strings.wait_update, reply_to_message_id=msg.id,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(Strings.progress, callback_data=new_data)]]))
 
     if user_id in FastProcesses:
@@ -266,7 +266,7 @@ async def fast_progress(_, cb: CallbackQuery):
 @bot.on_callback_query(filters.create(lambda _, __, cb: cb.data == 'delete-file'))
 async def delete_file_handler(_, cb: CallbackQuery):
     msg = cb.message
-    AllWorkers.remove(msg.message_id)
+    AllWorkers.remove(msg.id)
     try:
         await msg.delete()
     except MessageDeleteForbidden:
