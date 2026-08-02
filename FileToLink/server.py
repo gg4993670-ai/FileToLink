@@ -1,6 +1,7 @@
 from asyncio import get_event_loop
 from urllib.parse import unquote
 import os
+import gc
 
 from pyrogram.errors import MessageIdInvalid
 from quart import Quart, abort, request, Response, redirect
@@ -56,20 +57,22 @@ async def download(archive_id: int, name: str):
             with open(worker.path, "rb") as f:
                 f.seek(start)
                 while current_byte <= end:
-                    part_number = worker.part_number(current_byte + 1)
+                    part_number = worker.worker.part_number(current_byte + 1) if hasattr(worker, 'worker') else worker.part_number(current_byte + 1)
                     if not worker.parts[part_number]:
                         await worker.dl(part_number)
 
                     loop.create_task(worker.pre_dl(part_number))
 
-                    chunk_size = min(8192, (end - current_byte) + 1)
+                    # RAM bachane ke liye chota chunk size (2KB) use kiya hai
+                    chunk_size = min(2048, (end - current_byte) + 1)
                     chunk = f.read(chunk_size)
                     if not chunk:
                         break
                     current_byte += len(chunk)
                     yield chunk
+                    gc.collect() # Force memory cleanup
         except (BrokenPipeError, ConnectionResetError):
-            pass  # Suppress broken pipe when player disconnects/seeks
+            pass
 
     headers = {
         "Content-Type": worker.mime_type or "application/octet-stream",
