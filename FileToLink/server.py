@@ -34,11 +34,9 @@ async def download(archive_id: int, name: str):
 
     file_size = worker.size
 
-    # Ensure first part is downloaded from Telegram
     if not worker.parts[0]:
         await worker.first_dl()
 
-    # Range Header Handling
     range_header = request.headers.get("Range")
     start = 0
     end = file_size - 1
@@ -54,21 +52,24 @@ async def download(archive_id: int, name: str):
 
     async def file_stream():
         current_byte = start
-        with open(worker.path, "rb") as f:
-            f.seek(start)
-            while current_byte <= end:
-                part_number = worker.part_number(current_byte + 1)
-                if not worker.parts[part_number]:
-                    await worker.dl(part_number)
+        try:
+            with open(worker.path, "rb") as f:
+                f.seek(start)
+                while current_byte <= end:
+                    part_number = worker.part_number(current_byte + 1)
+                    if not worker.parts[part_number]:
+                        await worker.dl(part_number)
 
-                loop.create_task(worker.pre_dl(part_number))
+                    loop.create_task(worker.pre_dl(part_number))
 
-                chunk_size = min(8192, (end - current_byte) + 1)
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                current_byte += len(chunk)
-                yield chunk
+                    chunk_size = min(8192, (end - current_byte) + 1)
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    current_byte += len(chunk)
+                    yield chunk
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Suppress broken pipe when player disconnects/seeks
 
     headers = {
         "Content-Type": worker.mime_type or "application/octet-stream",
