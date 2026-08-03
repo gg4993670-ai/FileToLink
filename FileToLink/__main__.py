@@ -30,14 +30,11 @@ async def main(_, msg: Message):
     media = (msg.video or msg.document or msg.photo or msg.audio or
              msg.voice or msg.video_note or msg.sticker or msg.animation)
 
+    if not media:
+        return
+
     worker = AllWorkers.get(file_id=media.file_unique_id)
-    if worker:
-        if not worker.parts[0]:
-            gen_msg = await bot.send_message(msg.chat.id, Strings.generating_link,
-                                             reply_to_message_id=msg.id)
-        else:
-            gen_msg = None
-    else:
+    if not worker:
         gen_msg = await bot.send_message(msg.chat.id, Strings.generating_link,
                                          reply_to_message_id=msg.id)
 
@@ -47,10 +44,8 @@ async def main(_, msg: Message):
 
         if archived_msg.id in NotFound:
             NotFound.remove(archived_msg.id)
-
-        await worker.create_file()
-
-    await worker.first_dl()
+    else:
+        gen_msg = None
 
     name = worker.name
     dl_link = worker.link
@@ -60,7 +55,6 @@ async def main(_, msg: Message):
     if worker.stream:
         st_link = f'{dl_link}?st=1'
         buttons.append([InlineKeyboardButton(Strings.st_link, url=st_link)])
-    buttons.append([InlineKeyboardButton(Strings.update_link, callback_data=f'fast|{worker.archive_id}')])
     reply_markup = InlineKeyboardMarkup(buttons)
 
     if gen_msg is not None:
@@ -90,16 +84,6 @@ async def start(_, msg: Message):
     await msg.reply_text(Strings.start, reply_markup=InlineKeyboardMarkup(buttons))
 
 
-async def keep_awake(sleep_time=20 * 60):
-    await sleep(sleep_time)
-    async with ClientSession() as session:
-        try:
-            async with session.get(Config.Link_Root + "keep_awake"):
-                pass
-        except Exception:
-            pass
-
-
 async def startup():
     try:
         await bot.start()
@@ -114,5 +98,4 @@ if __name__ == '__main__':
     app_config = HypercornConfig()
     app_config._bind = [f'0.0.0.0:{Config.Port}']
     bot.loop.create_task(serve(app, app_config, shutdown_trigger=lambda: Future()))
-    bot.loop.run_until_complete(keep_awake())
     idle()
