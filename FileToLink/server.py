@@ -1,5 +1,6 @@
 from urllib.parse import unquote
 import math
+import asyncio
 
 from pyrogram.errors import MessageIdInvalid
 from quart import Quart, abort, request, Response, redirect
@@ -33,7 +34,6 @@ async def download(archive_id: int, name: str):
     if not message:
         return abort(404)
 
-    # Extract exact media object
     media = (
         message.video or
         message.document or
@@ -64,9 +64,9 @@ async def download(archive_id: int, name: str):
     end = min(end, file_size - 1)
     content_length = (end - start) + 1
 
-    # Direct Telegram Chunk Streamer
+    # Safe Streamer with Connection Cancel handling
     async def media_streamer():
-        chunk_size = 1024 * 1024  # 1MB Pyrogram Part
+        chunk_size = 1024 * 1024  # 1MB Chunk
         first_part = math.floor(start / chunk_size)
         last_part = math.floor(end / chunk_size)
         
@@ -89,10 +89,12 @@ async def download(archive_id: int, name: str):
                     yield chunk
 
                 current_part += 1
+                await asyncio.sleep(0.001)  # Allow async event loop to catch disconnects
+        except (asyncio.CancelledError, GeneratorExit, BrokenPipeError, ConnectionResetError):
+            pass
         except Exception:
             pass
 
-    # Disposition: Check if URL has ?st=1 query parameter
     is_stream = request.args.get("st") == "1"
     disposition_type = "inline" if is_stream else "attachment"
 
@@ -102,6 +104,7 @@ async def download(archive_id: int, name: str):
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
         "Content-Disposition": f'{disposition_type}; filename="{worker.name}"',
+        "Cache-Control": "no-cache, no-store, must-revalidate",  # Prevents stale buffer on re-open
     }
 
     status = 206 if range_header else 200
