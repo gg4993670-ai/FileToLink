@@ -8,7 +8,6 @@ from quart import Quart, abort, request, Response, redirect
 from FileToLink import Config, bot
 from FileToLink.worker import Worker, AllWorkers, create_worker, NotFound
 
-
 app = Quart("FileToLink-Bot")
 
 
@@ -48,64 +47,64 @@ async def download(archive_id: int, name: str):
         return abort(404)
 
     range_header = request.headers.get("Range")
-    start = 0
-    end = file_size - 1
-
+    
     if range_header:
-        try:
-            ranges = range_header.replace("bytes=", "").split("-")
-            start = int(ranges[0]) if ranges[0] else 0
-            if len(ranges) > 1 and ranges[1]:
-                end = int(ranges[1])
-        except ValueError:
-            start = 0
-            end = file_size - 1
+        # Browser Range Request Parse
+        byte_range = range_header.replace("bytes=", "").split("-")
+        start = int(byte_range[0]) if byte_range[0] else 0
+        end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+    else:
+        start = 0
+        end = file_size - 1
 
     end = min(end, file_size - 1)
     content_length = (end - start) + 1
 
-    # Safe Streamer with Connection Cancel handling
     async def media_streamer():
-        chunk_size = 1024 * 1024  # 1MB Chunk
+        chunk_size = 1024 * 1024  # 1MB Pyrogram default
         first_part = math.floor(start / chunk_size)
         last_part = math.floor(end / chunk_size)
-        
-        offset = start % chunk_size
+
         current_part = first_part
+        bytes_left = content_length
 
         try:
             async for chunk in bot.stream_media(message, offset=first_part):
-                if current_part > last_part:
+                if current_part > last_part or bytes_left <= 0:
                     break
 
-                if current_part == first_part and current_part == last_part:
-                    yield chunk[offset : offset + content_length]
-                elif current_part == first_part:
-                    yield chunk[offset:]
-                elif current_part == last_part:
-                    remaining = (end % chunk_size) + 1
-                    yield chunk[:remaining]
-                else:
-                    yield chunk
+                # Chunk offset slicing
+                chunk_start = (start % chunk_size) if current_part == first_part else 0
+                chunk_data = chunk[chunk_start:]
 
+                if len(chunk_data) > bytes_left:
+                    chunk_data = chunk_data[:bytes_left]
+
+                bytes_left -= len(chunk_data)
                 current_part += 1
-                await asyncio.sleep(0.001)  # Allow async event loop to catch disconnects
-        except (asyncio.CancelledError, GeneratorExit, BrokenPipeError, ConnectionResetError):
-            pass
+
+                try:
+                    yield chunk_data
+                except (GeneratorExit, asyncio.CancelledError, BrokenPipeError, ConnectionResetError):
+                    break
+
+                await asyncio.sleep(0.001)
         except Exception:
-            pass
+            return
 
     is_stream = request.args.get("st") == "1"
-    disposition_type = "inline" if is_stream else "attachment"
+    disposition = "inline" if is_stream else "attachment"
 
     headers = {
         "Content-Type": worker.mime_type or "video/mp4",
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
-        "Content-Disposition": f'{disposition_type}; filename="{worker.name}"',
-        "Cache-Control": "no-cache, no-store, must-revalidate",  # Prevents stale buffer on re-open
+        "Content-Disposition": f'{disposition}; filename="{worker.name}"',
+        "Access-Control-Allow-Origin": "*",
     }
 
-    status = 206 if range_header else 200
-    return Response(media_streamer(), status=status, headers=headers)
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+        return Response(media_streamer(), status=206, headers=headers)
+    
+    return Response(media_streamer(), status=200, headers=headers)
