@@ -31,7 +31,7 @@ async def download(archive_id: int, name: str):
     file_size = worker.size
     message = worker.msg
 
-    if not message:
+    if not message or file_size is None or file_size == 0:
         return abort(404)
 
     media = (
@@ -61,35 +61,35 @@ async def download(archive_id: int, name: str):
             start = 0
             end = file_size - 1
 
+    # Bounds check
+    if start >= file_size:
+        return Response(status=416, headers={"Content-Range": f"bytes */{file_size}"})
+
     end = min(end, file_size - 1)
     content_length = (end - start) + 1
 
-    # Safe Streamer with Connection Cancel handling
     async def media_streamer():
-        chunk_size = 1024 * 1024  # 1MB Chunk
+        chunk_size = 1024 * 1024  # 1MB Pyrogram Standard Chunk
         first_part = math.floor(start / chunk_size)
-        last_part = math.floor(end / chunk_size)
-        
         offset = start % chunk_size
-        current_part = first_part
+        bytes_to_send = content_length
 
         try:
             async for chunk in bot.stream_media(message, offset=first_part):
-                if current_part > last_part:
+                if bytes_to_send <= 0:
                     break
 
-                if current_part == first_part and current_part == last_part:
-                    yield chunk[offset : offset + content_length]
-                elif current_part == first_part:
-                    yield chunk[offset:]
-                elif current_part == last_part:
-                    remaining = (end % chunk_size) + 1
-                    yield chunk[:remaining]
-                else:
-                    yield chunk
+                if offset > 0:
+                    chunk = chunk[offset:]
+                    offset = 0
 
-                current_part += 1
-                await asyncio.sleep(0.001)  # Allow async event loop to catch disconnects
+                if len(chunk) > bytes_to_send:
+                    chunk = chunk[:bytes_to_send]
+
+                bytes_to_send -= len(chunk)
+                yield chunk
+                await asyncio.sleep(0)  # Yield control to event loop
+
         except (asyncio.CancelledError, GeneratorExit, BrokenPipeError, ConnectionResetError):
             pass
         except Exception:
@@ -100,12 +100,18 @@ async def download(archive_id: int, name: str):
 
     headers = {
         "Content-Type": worker.mime_type or "video/mp4",
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
         "Content-Disposition": f'{disposition_type}; filename="{worker.name}"',
-        "Cache-Control": "no-cache, no-store, must-revalidate",  # Prevents stale buffer on re-open
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Allow-Headers": "Range, Accept, Content-Type",
     }
 
-    status = 206 if range_header else 200
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+        status = 206
+    else:
+        status = 200
+
     return Response(media_streamer(), status=status, headers=headers)
